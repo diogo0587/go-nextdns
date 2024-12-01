@@ -30,6 +30,7 @@ jobs:
               "net/http"
               "os"
               "sort"
+              "strings"
               "time"
           )
 
@@ -280,9 +281,9 @@ jobs:
                   new Chart(ctx, {
                       type: 'pie',
                       data: {
-                          labels: [{{range $action, $count := .Statistics}}"{{$action}}"{{if not (eq $action (last (keys $.Statistics)))}}, {{end}}{{end}}],
+                          labels: {{.Statistics | keys | toJson}},
                           datasets: [{
-                              data: [{{range $action, $count := .Statistics}}{{$count}}{{if not (eq $action (last (keys $.Statistics)))}}, {{end}}{{end}}],
+                              data: {{.Statistics | values | toJson}},
                               backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
                           }]
                       },
@@ -337,6 +338,30 @@ jobs:
               }
 
               return logsResponse.Logs, nil
+          }
+
+          func keys(m map[string]int) []string {
+              keys := make([]string, 0, len(m))
+              for k := range m {
+                  keys = append(keys, k)
+              }
+              return keys
+          }
+
+          func values(m map[string]int) []int {
+              values := make([]int, 0, len(m))
+              for _, v := range m {
+                  values = append(values, v)
+              }
+              return values
+          }
+
+          func toJson(v interface{}) string {
+              b, err := json.Marshal(v)
+              if err != nil {
+                  return "[]"
+              }
+              return string(b)
           }
           EOF
 
