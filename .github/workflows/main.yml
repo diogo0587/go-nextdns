@@ -1,0 +1,155 @@
+name: NextDNS to Vercel
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-process-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+      
+      - name: Fetch NextDNS logs
+        run: |
+          curl -X GET 'https://api.nextdns.io/profiles/85d564/logs' \
+          -H 'X-Api-Key:f31f2871d328a52a45fefadc09a1c67d0dd5d53d' \
+          -o nextdns_logs.json
+      
+      - name: Process logs and generate HTML
+        run: |
+          cat << EOF > process.go
+          package main
+
+          import (
+              "encoding/json"
+              "html/template"
+              "io/ioutil"
+              "log"
+              "os"
+              "time"
+          )
+
+          type LogEntry struct {
+              Timestamp time.Time \`json:"timestamp"\`
+              Domain    string    \`json:"domain"\`
+              Action    string    \`json:"action"\`
+          }
+
+          type PageData struct {
+              Logs []LogEntry
+          }
+
+          func main() {
+              data, err := ioutil.ReadFile("nextdns_logs.json")
+              if err != nil {
+                  log.Fatal(err)
+              }
+
+              var logs []LogEntry
+              err = json.Unmarshal(data, &logs)
+              if err != nil {
+                  log.Fatal(err)
+              }
+
+              tmpl := template.Must(template.New("index").Parse(\`
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>NextDNS Logs</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+                  nav { background-color: #333; padding: 10px; }
+                  nav a { color: white; text-decoration: none; padding: 10px; }
+                  table { width: 100%; border-collapse: collapse; }
+                  th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                  th { background-color: #f2f2f2; }
+                  section { padding: 20px; }
+              </style>
+          </head>
+          <body>
+              <nav>
+                  <a href="#logs">Logs</a>
+                  <a href="#stats">Estatísticas</a>
+                  <a href="#about">Sobre</a>
+              </nav>
+              
+              <section id="logs">
+                  <h1>NextDNS Logs</h1>
+                  <table>
+                      <tr>
+                          <th>Data</th>
+                          <th>Domínio</th>
+                          <th>Ação</th>
+                      </tr>
+                      {{range .Logs}}
+                      <tr>
+                          <td>{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                          <td>{{.Domain}}</td>
+                          <td>{{.Action}}</td>
+                      </tr>
+                      {{end}}
+                  </table>
+              </section>
+              
+              <section id="stats">
+                  <h2>Estatísticas</h2>
+                  <p>Total de logs: {{len .Logs}}</p>
+              </section>
+              
+              <section id="about">
+                  <h2>Sobre</h2>
+                  <p>Esta página exibe logs do NextDNS para o perfil 85d564.</p>
+              </section>
+          </body>
+          </html>
+          \`))
+
+              os.Mkdir("public", 0755)
+              file, err := os.Create("public/index.html")
+              if err != nil {
+                  log.Fatal(err)
+              }
+              defer file.Close()
+
+              err = tmpl.Execute(file, PageData{Logs: logs})
+              if err != nil {
+                  log.Fatal(err)
+              }
+          }
+          EOF
+
+          go run process.go
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          echo '{
+            "version": 2,
+            "builds": [
+              { "src": "public/**", "use": "@vercel/static" }
+            ],
+            "routes": [
+              { "src": "/(.*)", "dest": "/public/$1" }
+            ]
+          }' > vercel.json
+          vercel --prod --token $VERCEL_TOKEN
