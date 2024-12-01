@@ -66,12 +66,10 @@ jobs:
                   log.Fatal(err)
               }
 
-              // Ordenar logs por timestamp (mais recente primeiro)
               sort.Slice(response.Logs, func(i, j int) bool {
                   return response.Logs[i].Timestamp.After(response.Logs[j].Timestamp)
               })
 
-              // Coletar dispositivos únicos e estatísticas
               devices := make(map[string]bool)
               statistics := make(map[string]int)
               for _, log := range response.Logs {
@@ -90,7 +88,13 @@ jobs:
                   Statistics: statistics,
               }
 
-              tmpl := template.Must(template.New("logs").Parse(\`
+              funcMap := template.FuncMap{
+                  "last": func(x int, a interface{}) bool {
+                      return x == reflect.ValueOf(a).Len() - 1
+                  },
+              }
+
+              tmpl := template.Must(template.New("logs").Funcs(funcMap).Parse(\`
           <!DOCTYPE html>
           <html lang="pt-BR">
           <head>
@@ -240,18 +244,16 @@ jobs:
                       filterLogs();
                   });
 
-                  // Inicialização
                   setupPagination();
                   showPage(currentPage);
 
-                  // Gráfico de estatísticas
                   const ctx = document.getElementById('statsChart').getContext('2d');
                   new Chart(ctx, {
                       type: 'pie',
                       data: {
-                          labels: [{{range $action, $count := .Statistics}}'{{$action}}',{{end}}],
+                          labels: [{{range $index, $action := .Statistics}}{{$action}}{{if not (last $index $.Statistics)}},{{end}}{{end}}],
                           datasets: [{
-                              data: [{{range $action, $count := .Statistics}}{{$count}},{{end}}],
+                              data: [{{range $index, $count := .Statistics}}{{$count}}{{if not (last $index $.Statistics)}},{{end}}{{end}}],
                               backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
                           }]
                       },
