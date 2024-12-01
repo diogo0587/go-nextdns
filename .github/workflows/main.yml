@@ -374,4 +374,4 @@ jobs:
               { "src": "/(.*)", "dest": "/public/$1" }
             ]
           }' > vercel.json
-          vercel deploy --prod --token vGXvCULtXjKWHV4qlIndkyyz .
+          vercel deploy --prod --yes --token vGXvCULtXjKWHV4qlIndkyyz .
