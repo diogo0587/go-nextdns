@@ -118,7 +118,7 @@ jobs:
           node-version: '18'
 
       - name: Install Vercel CLI
-        run: npm install -g vercel@cli
+        run: npm install -g vercel
 
       - name: Deploy to Vercel
         run: |
