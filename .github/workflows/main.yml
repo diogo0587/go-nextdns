@@ -26,29 +26,34 @@ jobs:
         run: |
           cat << EOF > process_logs.go
           package main
-          
+
           import (
               "encoding/json"
               "html/template"
               "io/ioutil"
               "log"
               "os"
+              "time"
+              "sort"
           )
-          
+
           type LogEntry struct {
-              Timestamp string \`json:"timestamp"\`
-              Domain    string \`json:"domain"\`
-              Action    string \`json:"action"\`
+              Timestamp time.Time \`json:"timestamp"\`
+              Domain    string    \`json:"domain"\`
+              Action    string    \`json:"action"\`
+              Device    string    \`json:"device"\`
           }
-          
+
           type LogsResponse struct {
               Logs []LogEntry \`json:"data"\`
           }
-          
+
           type PageData struct {
-              Logs []LogEntry
+              Logs        []LogEntry
+              Devices     []string
+              Statistics  map[string]int
           }
-          
+
           func main() {
               data, err := ioutil.ReadFile("nextdns_logs.json")
               if err != nil {
@@ -61,6 +66,30 @@ jobs:
                   log.Fatal(err)
               }
 
+              // Ordenar logs por timestamp (mais recente primeiro)
+              sort.Slice(response.Logs, func(i, j int) bool {
+                  return response.Logs[i].Timestamp.After(response.Logs[j].Timestamp)
+              })
+
+              // Coletar dispositivos únicos e estatísticas
+              devices := make(map[string]bool)
+              statistics := make(map[string]int)
+              for _, log := range response.Logs {
+                  devices[log.Device] = true
+                  statistics[log.Action]++
+              }
+
+              uniqueDevices := make([]string, 0, len(devices))
+              for device := range devices {
+                  uniqueDevices = append(uniqueDevices, device)
+              }
+
+              pageData := PageData{
+                  Logs:       response.Logs,
+                  Devices:    uniqueDevices,
+                  Statistics: statistics,
+              }
+
               tmpl := template.Must(template.New("logs").Parse(\`
           <!DOCTYPE html>
           <html lang="pt-BR">
@@ -68,31 +97,171 @@ jobs:
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <title>Logs do NextDNS</title>
+              <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+              <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
               <style>
-                  body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-                  h1 { color: #333; }
-                  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-                  th { background-color: #f2f2f2; color: #333; }
-                  tr:nth-child(even) { background-color: #f9f9f9; }
+                  body { padding-top: 20px; }
+                  .chart-container { height: 300px; }
               </style>
           </head>
           <body>
-              <h1>Logs do NextDNS</h1>
-              <table>
-                  <tr>
-                      <th>Timestamp</th>
-                      <th>Domínio</th>
-                      <th>Ação</th>
-                  </tr>
-                  {{range .Logs}}
-                  <tr>
-                      <td>{{.Timestamp}}</td>
-                      <td>{{.Domain}}</td>
-                      <td>{{.Action}}</td>
-                  </tr>
-                  {{end}}
-              </table>
+              <div class="container">
+                  <h1 class="mb-4">Logs do NextDNS</h1>
+                  
+                  <div class="row mb-4">
+                      <div class="col-md-6">
+                          <div class="card">
+                              <div class="card-body">
+                                  <h5 class="card-title">Filtros</h5>
+                                  <form id="filterForm">
+                                      <div class="mb-3">
+                                          <label for="startDate" class="form-label">Data Inicial</label>
+                                          <input type="date" class="form-control" id="startDate">
+                                      </div>
+                                      <div class="mb-3">
+                                          <label for="endDate" class="form-label">Data Final</label>
+                                          <input type="date" class="form-control" id="endDate">
+                                      </div>
+                                      <div class="mb-3">
+                                          <label for="device" class="form-label">Dispositivo</label>
+                                          <select class="form-select" id="device">
+                                              <option value="">Todos</option>
+                                              {{range .Devices}}
+                                              <option value="{{.}}">{{.}}</option>
+                                              {{end}}
+                                          </select>
+                                      </div>
+                                      <button type="submit" class="btn btn-primary">Filtrar</button>
+                                  </form>
+                              </div>
+                          </div>
+                      </div>
+                      <div class="col-md-6">
+                          <div class="card">
+                              <div class="card-body">
+                                  <h5 class="card-title">Estatísticas</h5>
+                                  <div class="chart-container">
+                                      <canvas id="statsChart"></canvas>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <table class="table table-striped" id="logsTable">
+                      <thead>
+                          <tr>
+                              <th>Timestamp</th>
+                              <th>Domínio</th>
+                              <th>Ação</th>
+                              <th>Dispositivo</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          {{range .Logs}}
+                          <tr>
+                              <td>{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                              <td>{{.Domain}}</td>
+                              <td>{{.Action}}</td>
+                              <td>{{.Device}}</td>
+                          </tr>
+                          {{end}}
+                      </tbody>
+                  </table>
+                  <nav>
+                      <ul class="pagination" id="pagination"></ul>
+                  </nav>
+              </div>
+
+              <script>
+              document.addEventListener('DOMContentLoaded', function() {
+                  const logsTable = document.getElementById('logsTable');
+                  const pagination = document.getElementById('pagination');
+                  const itemsPerPage = 10;
+                  let currentPage = 1;
+                  let filteredLogs = [...logsTable.querySelectorAll('tbody tr')];
+
+                  function showPage(page) {
+                      const startIndex = (page - 1) * itemsPerPage;
+                      const endIndex = startIndex + itemsPerPage;
+                      filteredLogs.forEach((row, index) => {
+                          row.style.display = (index >= startIndex && index < endIndex) ? '' : 'none';
+                      });
+                  }
+
+                  function setupPagination() {
+                      const pageCount = Math.ceil(filteredLogs.length / itemsPerPage);
+                      pagination.innerHTML = '';
+                      for (let i = 1; i <= pageCount; i++) {
+                          const li = document.createElement('li');
+                          li.classList.add('page-item');
+                          const a = document.createElement('a');
+                          a.classList.add('page-link');
+                          a.href = '#';
+                          a.textContent = i;
+                          a.addEventListener('click', (e) => {
+                              e.preventDefault();
+                              currentPage = i;
+                              showPage(currentPage);
+                              updateActivePageLink();
+                          });
+                          li.appendChild(a);
+                          pagination.appendChild(li);
+                      }
+                      updateActivePageLink();
+                  }
+
+                  function updateActivePageLink() {
+                      pagination.querySelectorAll('li').forEach((li, index) => {
+                          li.classList.toggle('active', index + 1 === currentPage);
+                      });
+                  }
+
+                  function filterLogs() {
+                      const startDate = new Date(document.getElementById('startDate').value);
+                      const endDate = new Date(document.getElementById('endDate').value);
+                      const device = document.getElementById('device').value;
+
+                      filteredLogs = [...logsTable.querySelectorAll('tbody tr')].filter(row => {
+                          const rowDate = new Date(row.cells[0].textContent);
+                          const rowDevice = row.cells[3].textContent;
+                          return (isNaN(startDate) || rowDate >= startDate) &&
+                                 (isNaN(endDate) || rowDate <= endDate) &&
+                                 (device === '' || rowDevice === device);
+                      });
+
+                      currentPage = 1;
+                      showPage(currentPage);
+                      setupPagination();
+                  }
+
+                  document.getElementById('filterForm').addEventListener('submit', function(e) {
+                      e.preventDefault();
+                      filterLogs();
+                  });
+
+                  // Inicialização
+                  setupPagination();
+                  showPage(currentPage);
+
+                  // Gráfico de estatísticas
+                  const ctx = document.getElementById('statsChart').getContext('2d');
+                  new Chart(ctx, {
+                      type: 'pie',
+                      data: {
+                          labels: [{{range $action, $count := .Statistics}}'{{$action}}',{{end}}],
+                          datasets: [{
+                              data: [{{range $action, $count := .Statistics}}{{$count}},{{end}}],
+                              backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+                          }]
+                      },
+                      options: {
+                          responsive: true,
+                          maintainAspectRatio: false
+                      }
+                  });
+              });
+              </script>
           </body>
           </html>
               \`))
@@ -104,7 +273,7 @@ jobs:
               }
               defer f.Close()
 
-              if err := tmpl.Execute(f, PageData{Logs: response.Logs}); err != nil {
+              if err := tmpl.Execute(f, pageData); err != nil {
                   log.Fatal(err)
               }
           }
@@ -131,4 +300,4 @@ jobs:
               { "src": "/(.*)", "dest": "/public/$1" }
             ]
           }' > vercel.json
-          vercel deploy --prod --yes --token vGXvCULtXjKWHV4qlIndkyyz .
+          vercel deploy --prod --token vGXvCULtXjKWHV4qlIndkyyz .
