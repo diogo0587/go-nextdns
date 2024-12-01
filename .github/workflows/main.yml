@@ -29,7 +29,6 @@ jobs:
               "log"
               "net/http"
               "os"
-              "reflect"
               "sort"
               "time"
           )
@@ -85,13 +84,7 @@ jobs:
                   Statistics: statistics,
               }
 
-              funcMap := template.FuncMap{
-                  "last": func(x int, a interface{}) bool {
-                      return x == reflect.ValueOf(a).Len() - 1
-                  },
-              }
-
-              tmpl := template.Must(template.New("logs").Funcs(funcMap).Parse(\`
+              tmpl := template.Must(template.New("logs").Parse(\`
           <!DOCTYPE html>
           <html lang="pt-BR">
           <head>
@@ -287,9 +280,9 @@ jobs:
                   new Chart(ctx, {
                       type: 'pie',
                       data: {
-                          labels: [{{range $index, $action := .Statistics}}{{$action}}{{if not (last $index $.Statistics)}},{{end}}{{end}}],
+                          labels: [{{range $action, $count := .Statistics}}"{{$action}}"{{if not (eq $action (last (keys $.Statistics)))}}, {{end}}{{end}}],
                           datasets: [{
-                              data: [{{range $index, $count := .Statistics}}{{$count}}{{if not (last $index $.Statistics)}},{{end}}{{end}}],
+                              data: [{{range $action, $count := .Statistics}}{{$count}}{{if not (eq $action (last (keys $.Statistics)))}}, {{end}}{{end}}],
                               backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
                           }]
                       },
