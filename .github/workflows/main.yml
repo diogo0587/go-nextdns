@@ -131,4 +131,4 @@ jobs:
               { "src": "/(.*)", "dest": "/public/$1" }
             ]
           }' > vercel.json
-          vercel deploy --prod --token vGXvCULtXjKWHV4qlIndkyyz --org n0evGQ0tjl2fTcnp0fSpVK8k --project prj_57YWFOcaIWhMggbcs8ZTv31B4TYX
+          vercel deploy --prod --token vGXvCULtXjKWHV4qlIndkyyz --scope n0evGQ0tjl2fTcnp0fSpVK8k --project prj_57YWFOcaIWhMggbcs8ZTv31B4TYX
