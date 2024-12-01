@@ -30,7 +30,6 @@ jobs:
               "net/http"
               "os"
               "sort"
-              "strings"
               "time"
           )
 
@@ -85,7 +84,11 @@ jobs:
                   Statistics: statistics,
               }
 
-              tmpl := template.Must(template.New("logs").Parse(\`
+              funcMap := template.FuncMap{
+                  "toJson": toJson,
+              }
+
+              tmpl := template.Must(template.New("logs").Funcs(funcMap).Parse(\`
           <!DOCTYPE html>
           <html lang="pt-BR">
           <head>
@@ -278,12 +281,13 @@ jobs:
                   showPage(currentPage);
 
                   const ctx = document.getElementById('statsChart').getContext('2d');
+                  const statistics = {{.Statistics | toJson}};
                   new Chart(ctx, {
                       type: 'pie',
                       data: {
-                          labels: {{.Statistics | keys | toJson}},
+                          labels: Object.keys(statistics),
                           datasets: [{
-                              data: {{.Statistics | values | toJson}},
+                              data: Object.values(statistics),
                               backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
                           }]
                       },
@@ -340,28 +344,12 @@ jobs:
               return logsResponse.Logs, nil
           }
 
-          func keys(m map[string]int) []string {
-              keys := make([]string, 0, len(m))
-              for k := range m {
-                  keys = append(keys, k)
-              }
-              return keys
-          }
-
-          func values(m map[string]int) []int {
-              values := make([]int, 0, len(m))
-              for _, v := range m {
-                  values = append(values, v)
-              }
-              return values
-          }
-
-          func toJson(v interface{}) string {
+          func toJson(v interface{}) template.JS {
               b, err := json.Marshal(v)
               if err != nil {
-                  return "[]"
+                  return template.JS("null")
               }
-              return string(b)
+              return template.JS(b)
           }
           EOF
 
