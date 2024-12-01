@@ -15,20 +15,6 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
-          cache: true
-          cache-dependency-path: |
-            **/go.mod
-            **/go.sum
-      
-      - name: Restore Go modules cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
       
       - name: Fetch NextDNS logs
         run: |
@@ -55,6 +41,10 @@ jobs:
               Action    string \`json:"action"\`
           }
           
+          type LogsResponse struct {
+              Logs []LogEntry \`json:"data"\`
+          }
+          
           type PageData struct {
               Logs []LogEntry
           }
@@ -65,33 +55,35 @@ jobs:
                   log.Fatal(err)
               }
 
-              var logs []LogEntry
-              err = json.Unmarshal(data, &logs)
+              var response LogsResponse
+              err = json.Unmarshal(data, &response)
               if err != nil {
                   log.Fatal(err)
               }
 
               tmpl := template.Must(template.New("logs").Parse(\`
           <!DOCTYPE html>
-          <html lang="en">
+          <html lang="pt-BR">
           <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>NextDNS Logs</title>
+              <title>Logs do NextDNS</title>
               <style>
-                  body { font-family: Arial, sans-serif; }
-                  table { width: 100%; border-collapse: collapse; }
-                  th, td { border: 1px solid #ddd; padding: 8px; }
-                  th { background-color: #f2f2f2; }
+                  body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+                  h1 { color: #333; }
+                  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                  th { background-color: #f2f2f2; color: #333; }
+                  tr:nth-child(even) { background-color: #f9f9f9; }
               </style>
           </head>
           <body>
-              <h1>NextDNS Logs</h1>
+              <h1>Logs do NextDNS</h1>
               <table>
                   <tr>
                       <th>Timestamp</th>
-                      <th>Domain</th>
-                      <th>Action</th>
+                      <th>Domínio</th>
+                      <th>Ação</th>
                   </tr>
                   {{range .Logs}}
                   <tr>
@@ -112,7 +104,7 @@ jobs:
               }
               defer f.Close()
 
-              if err := tmpl.Execute(f, PageData{Logs: logs}); err != nil {
+              if err := tmpl.Execute(f, PageData{Logs: response.Logs}); err != nil {
                   log.Fatal(err)
               }
           }
